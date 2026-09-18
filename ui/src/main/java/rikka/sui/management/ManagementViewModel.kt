@@ -59,17 +59,20 @@ class ManagementViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val pm = context.packageManager
-                val result = BridgeServiceClient.getApplications(-1 /* ALL */).apply {
-                    forEach { it.label = it.packageInfo.applicationInfo.loadLabel(pm) }
+                val result = BridgeServiceClient.getApplications(-1 /* ALL */)
+                if (result != null) {
+                    result.forEach { it.label = it.packageInfo.applicationInfo.loadLabel(pm) }
+                    fullList.clear()
+                    fullList.addAll(result)
+                    handleList()
+                } else {
+                    android.util.Log.e("SuiManagement", "BridgeServiceClient.getApplications returned null")
+                    appList.postValue(Resource.error(IllegalStateException("BridgeServiceClient.getApplications returned null"), null))
                 }
-
-                fullList.clear()
-                fullList.addAll(result)
-
-                handleList()
             } catch (e: CancellationException) {
 
             } catch (e: Throwable) {
+                android.util.Log.e("SuiManagement", "Failed to load applications", e)
                 appList.postValue(Resource.error(e, null))
             }
         }

@@ -452,15 +452,13 @@ public class SuiService extends Service<SuiUserServiceManager, SuiClientManager,
                     continue;
 
                 if (flags == 0) {
-                    String dataDir;
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        dataDir = pi.applicationInfo.deviceProtectedDataDir;
-                    } else {
-                        dataDir = pi.applicationInfo.dataDir;
-                    }
+                    String ceDataDir = pi.applicationInfo.dataDir;
+                    String deDataDir = pi.applicationInfo.deviceProtectedDataDir;
+                    String sourceDir = pi.applicationInfo.sourceDir;
 
-                    boolean hasApk = MapUtil.getOrPut(existenceCache, pi.applicationInfo.sourceDir, () -> new File(pi.applicationInfo.sourceDir).exists());
-                    boolean hasData = MapUtil.getOrPut(existenceCache, dataDir, () -> new File(dataDir).exists());
+                    boolean hasApk = sourceDir != null && MapUtil.getOrPut(existenceCache, sourceDir, () -> new File(sourceDir).exists());
+                    boolean hasData = (ceDataDir != null && MapUtil.getOrPut(existenceCache, ceDataDir, () -> new File(ceDataDir).exists()))
+                            || (deDataDir != null && MapUtil.getOrPut(existenceCache, deDataDir, () -> new File(deDataDir).exists()));
 
                     // Installed (or hidden): hasApk && hasData
                     // Uninstalled but keep data: !hasApk && hasData
@@ -477,17 +475,24 @@ public class SuiService extends Service<SuiUserServiceManager, SuiClientManager,
                                     baseFlags | PackageManager.GET_ACTIVITIES | PackageManager.GET_RECEIVERS | PackageManager.GET_SERVICES | PackageManager.GET_PROVIDERS,
                                     user);
                             if (pi2 == null) {
-                                // Exceed binder data transfer limit
-                                pi2 = pi;
-                                pi2.activities = PackageManagerApis.getPackageInfoNoThrow(pi.packageName, baseFlags | PackageManager.GET_ACTIVITIES, user).activities;
-                                pi2.receivers = PackageManagerApis.getPackageInfoNoThrow(pi.packageName, baseFlags | PackageManager.GET_RECEIVERS, user).receivers;
-                                pi2.services = PackageManagerApis.getPackageInfoNoThrow(pi.packageName, baseFlags | PackageManager.GET_SERVICES, user).services;
-                                pi2.providers = PackageManagerApis.getPackageInfoNoThrow(pi.packageName, baseFlags | PackageManager.GET_PROVIDERS, user).providers;
+                                // Exceed binder data transfer limit or hidden API blocked
+                                PackageInfo act = PackageManagerApis.getPackageInfoNoThrow(pi.packageName, baseFlags | PackageManager.GET_ACTIVITIES, user);
+                                PackageInfo rec = PackageManagerApis.getPackageInfoNoThrow(pi.packageName, baseFlags | PackageManager.GET_RECEIVERS, user);
+                                PackageInfo ser = PackageManagerApis.getPackageInfoNoThrow(pi.packageName, baseFlags | PackageManager.GET_SERVICES, user);
+                                PackageInfo pro = PackageManagerApis.getPackageInfoNoThrow(pi.packageName, baseFlags | PackageManager.GET_PROVIDERS, user);
+                                if (act == null && rec == null && ser == null && pro == null) {
+                                    // Conservatively assume components exist when queries return null
+                                    return true;
+                                }
+                                return (act != null && act.activities != null && act.activities.length > 0)
+                                        || (rec != null && rec.receivers != null && rec.receivers.length > 0)
+                                        || (ser != null && ser.services != null && ser.services.length > 0)
+                                        || (pro != null && pro.providers != null && pro.providers.length > 0);
                             }
-                            return pi2.activities != null && pi2.activities.length > 0
-                                    || pi2.receivers != null && pi2.receivers.length > 0
-                                    || pi2.services != null && pi2.services.length > 0
-                                    || pi2.providers != null && pi2.providers.length > 0;
+                            return (pi2.activities != null && pi2.activities.length > 0)
+                                    || (pi2.receivers != null && pi2.receivers.length > 0)
+                                    || (pi2.services != null && pi2.services.length > 0)
+                                    || (pi2.providers != null && pi2.providers.length > 0);
                         } catch (Throwable e) {
                             return true;
                         }
